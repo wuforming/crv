@@ -1,0 +1,9 @@
+node_modules/
+dist/
+packages/server/web-dist/
+*.log
+.DS_Store
+.zcode
+.agents
+crv-review-*.tgz
+skills-lock.json

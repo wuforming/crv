@@ -1,0 +1,22 @@
+{
+  "name": "crv",
+  "version": "0.1.0",
+  "private": true,
+  "description": "面对面 Code Review 会议工具：双分支对比、双模式 diff、行级评论、导出纪要",
+  "packageManager": "pnpm@10.0.0",
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "@biomejs/biome"]
+  },
+  "scripts": {
+    "build": "pnpm --filter crv-review build && pnpm --filter @crv/web build",
+    "dev:server": "pnpm --filter crv-review dev",
+    "dev:web": "pnpm --filter @crv/web dev",
+    "start": "node packages/server/dist/index.js",
+    "test": "pnpm --filter crv-review test",
+    "pack": "pnpm build && pnpm --filter crv-review exec npm pack",
+    "lint": "biome check ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4"
+  }
+}
