@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseRegions, treeLangOf } from './tree.js';
+import { parseCallSites, parseRegions, treeLangOf } from './tree.js';
 
 const TS_CODE = `import { x } from './x';
 
@@ -82,5 +82,47 @@ describe('parseRegions', () => {
   it('未适配语言返回空', async () => {
     expect(await parseRegions('fn main() {}', 'kotlin')).toEqual([]);
     expect(await parseRegions('x', 'plaintext')).toEqual([]);
+  });
+});
+
+describe('parseCallSites', () => {
+  it('TS：调用点带行号，import 与声明不算调用', async () => {
+    const sites = await parseCallSites(
+      [
+        'import { formatAmount } from "./format";', // 1
+        '', // 2
+        'export function total(lines: string[]): string {', // 3
+        '  const t = formatAmount(lines[0]);', // 4
+        '  return t.trim();', // 5
+        '}', // 6
+      ].join('\n'),
+      'typescript',
+    );
+    expect(sites).not.toBeNull();
+    const fmt = sites!.find((s) => s.name === 'formatAmount');
+    expect(fmt).toEqual({ name: 'formatAmount', line: 4 });
+    const trim = sites!.find((s) => s.name === 'trim');
+    expect(trim).toEqual({ name: 'trim', line: 5 });
+    // import 语句和 total 声明不是调用
+    expect(sites!.some((s) => s.name === 'total')).toBe(false);
+  });
+
+  it('Java：方法调用带行号', async () => {
+    const sites = await parseCallSites(
+      [
+        'public class OrderService {', // 1
+        '  public BigDecimal total(List<String> lines) {', // 2
+        '    return pricingClient.quote(lines);', // 3
+        '  }', // 4
+        '}', // 5
+      ].join('\n'),
+      'java',
+    );
+    expect(sites).not.toBeNull();
+    expect(sites!).toContainEqual({ name: 'quote', line: 3 });
+  });
+
+  it('未适配语言返回 null', async () => {
+    expect(await parseCallSites('fun main() { foo() }', 'kotlin')).toBeNull();
   });
 });

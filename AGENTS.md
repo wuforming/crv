@@ -28,8 +28,9 @@ pnpm run pack              # 构建 + 打包 npm tarball（packages/server/crv-r
 - `packages/server`（Fastify + simple-git + web-tree-sitter）：
   - `diff.ts` 自研 unified diff 解析器（勿引入 parse-diff）+ jsdiff 词级配对
   - `git.ts` 全部 git 调用；diff 一律 `base...review` 三点 + `-M`
-  - `tree.ts` 方法/类边界（Java/TS/TSX/JS；**Kotlin 无 wasm grammar，必须保持通用折叠降级，勿让解析失败阻塞 API**）
-  - `defs.ts` 跳定义索引：git archive 快照到 tmp，按 **commit sha**（非分支名）缓存，LRU 上限 4
+  - `tree.ts` 方法/类边界（Java/TS/TSX/JS；**Kotlin 无 wasm grammar，必须保持通用折叠降级，勿让解析失败阻塞 API**）；`parseFileFacts` 单次 parse 同时出定义区域 + 调用点（带行号）
+  - `defs.ts` 跳定义索引 + 反查调用方（`findRefs`，按名字解析的导航提示）：git archive 快照到 tmp，按 **commit sha**（非分支名）缓存，LRU 上限 4；`snapshotFile()` 供 graph 复用快照
+  - `graph.ts` 改动文件间调用链：tree-sitter 提取调用点（失败降级标识符扫描）+ def 索引落点 → 边 + 拓扑推荐序；纯导航增强，失败空图兜底
   - `store.ts` 会话存 `~/.code-review/<sha256(repo)前12位>/sessions/`，原子写；`refresh.ts` 评论按 contentHash 重锚定
   - `dialog.ts` 系统原生文件夹选择（macOS osascript）；测试桩 `CRV_ENABLE_PICK_STUB=<路径>` 仅测试用
   - `server.ts` 路由：会话类端点必须先 `validateRepo` 规范化仓库真实路径
@@ -38,6 +39,7 @@ pnpm run pack              # 构建 + 打包 npm tarball（packages/server/crv-r
   - `lib/rows.ts` 渲染行模型（范围合并：hunk ±ctx / 方法区域 / expandAllMethods / gap 扩展 / 内联评论槽位交错），聚焦、方法视图、全文件三模式共用
   - 手写 diff 行组件（`DiffRowView` 等），**不引入现成 diff 视图库**；全文件模式虚拟滚动用 measureElement 动态测高（评论卡片变高），行 key 必须稳定（`rowKey`）
   - 评论卡片内联在锚定行后（跟随折叠）；右栏仅做导航 + 失效评论 CRUD（失效评论无行内槽位，其编辑在右栏渲染 Composer）
+  - `FileTree.tsx` 调用链树侧栏模式（与平铺列表互切，模式持久化 localStorage）；共享文件在每个调用者下重复出现，已读标记是会话内状态不持久化
 
 ## 已知坑（改相关代码前必读）
 
@@ -46,6 +48,7 @@ pnpm run pack              # 构建 + 打包 npm tarball（packages/server/crv-r
 - 定义索引缓存键必须用解析后的 sha；按分支名会让新 commit 命中旧索引
 - pnpm 10 拦 esbuild/biome 安装脚本：根 package.json `pnpm.onlyBuiltDependencies` 已放行，新装带构建脚本的依赖要补
 - 保存会话时 server 端补齐评论 `contentHash`（sha256(snippet)），刷新锚定依赖它，勿在客户端删掉该字段语义
+- `packages/server/web-dist/` 是 prepack 产物：一旦存在，`resolveWebDist()` 会**优先于** `packages/web/dist` 被 `pnpm start` 托管——开发仓库里跑过 pack 后改了前端，start 前先删掉 web-dist（或重跑 pack 刷新），否则页面是旧 bundle
 - 测试里 vitest ESM 环境，禁止内联 `require()`，统一顶部 import
 
 ## 约定

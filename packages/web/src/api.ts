@@ -1,4 +1,4 @@
-import type { BranchInfo, Def, DiffSummary, FileDiff, Region, SessionComment, SessionData } from './types';
+import type { BranchInfo, CallGraph, Def, DiffSummary, FileDiff, RefSite, Region, SessionComment, SessionData } from './types';
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
@@ -70,6 +70,10 @@ export const api = {
     }),
   defs: (repo: string, rev: string, symbol: string) =>
     json<{ defs: Def[] }>(`/api/tree/defs?${qs({ repo, rev, symbol })}`).then((r) => r.defs),
+  refs: (repo: string, rev: string, symbol: string) =>
+    json<{ refs: RefSite[] }>(`/api/tree/refs?${qs({ repo, rev, symbol })}`).then((r) => r.refs),
+  graph: (repo: string, review: string, base: string) =>
+    json<CallGraph>(`/api/review/graph?${qs({ repo, review, base })}`),
   prefetchIndex: (repo: string, rev: string) =>
     json<{ ok: boolean }>('/api/tree/index', {
       method: 'POST',

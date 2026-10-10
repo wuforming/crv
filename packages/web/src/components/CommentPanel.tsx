@@ -1,4 +1,16 @@
-import { MessageSquare, Pencil, Trash2, TriangleAlert } from 'lucide-react';
+import {
+  MessageSquare,
+  PanelRightClose,
+  PanelRightOpen,
+  Pencil,
+  Trash2,
+  TriangleAlert,
+} from 'lucide-react';
+import { useEffect, useState } from 'react';
+import {
+  getCommentPanelCollapsed,
+  saveCommentPanelCollapsed,
+} from '../lib/storage';
 import { useReviewStore } from '../store';
 import type { SessionComment } from '../types';
 import { Composer, timeLabel } from './Composer';
@@ -66,6 +78,7 @@ export function CommentPanel() {
   const selected = useReviewStore((s) => s.selected);
   const comments = useReviewStore((s) => s.comments);
   const composer = useReviewStore((s) => s.composer);
+  const [collapsed, setCollapsed] = useState(() => getCommentPanelCollapsed());
 
   const fileComments = comments
     .filter((c) => c.file === selected)
@@ -78,6 +91,42 @@ export function CommentPanel() {
   // 仅失效评论的编辑留在右栏（无行内槽位）；有效评论的 composer 都在代码行内
   const panelComposer = composer?.editing?.orphaned ? composer : null;
 
+  const applyCollapsed = (next: boolean) => {
+    setCollapsed(next);
+    saveCommentPanelCollapsed(next);
+  };
+
+  // 失效评论的编辑只能在右栏 composer 完成，收起时自动展开
+  useEffect(() => {
+    if (collapsed && composer?.editing?.orphaned) {
+      setCollapsed(false);
+      saveCommentPanelCollapsed(false);
+    }
+  }, [collapsed, composer]);
+
+  if (collapsed) {
+    return (
+      <aside className="flex w-7 shrink-0 flex-col items-center gap-2 border-l border-[#30363d] bg-[#0d1117] py-2">
+        <button
+          type="button"
+          onClick={() => applyCollapsed(false)}
+          className="rounded p-1 text-[#8b949e] hover:bg-[#21262d] hover:text-[#e6edf3]"
+          title="展开评论栏"
+        >
+          <PanelRightOpen size={13} />
+        </button>
+        {comments.length > 0 && (
+          <span
+            className="rounded-full bg-[#1f6feb]/20 px-1 text-[10px] leading-4 text-[#79c0ff]"
+            title={`${comments.length} 条评论`}
+          >
+            {comments.length}
+          </span>
+        )}
+      </aside>
+    );
+  }
+
   return (
     <aside className="flex w-64 shrink-0 flex-col border-l border-[#30363d] bg-[#0d1117]">
       <div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-[#21262d] px-3 text-xs text-[#8b949e]">
@@ -85,6 +134,14 @@ export function CommentPanel() {
         评论 {valid.length}
         {orphaned.length > 0 && <span className="text-[#f85149]">· 失效 {orphaned.length}</span>}
         {otherCount > 0 && <span className="ml-auto text-[10px] text-[#6e7681]">其他文件 {otherCount}</span>}
+        <button
+          type="button"
+          onClick={() => applyCollapsed(true)}
+          className={`shrink-0 rounded p-0.5 hover:bg-[#21262d] hover:text-[#e6edf3] ${otherCount > 0 ? '' : 'ml-auto'}`}
+          title="收起评论栏"
+        >
+          <PanelRightClose size={12} />
+        </button>
       </div>
       <div className="flex-1 space-y-1 overflow-y-auto p-1.5">
         {panelComposer && <Composer />}

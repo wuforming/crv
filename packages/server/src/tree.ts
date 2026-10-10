@@ -133,6 +133,74 @@ export async function parseRegions(content: string, lang: string): Promise<Regio
   }
 }
 
+/** 调用节点 → 被调名字的提取器（按节点类型分发，语言无关；各 grammar 只会出现其中一部分类型）。 */
+const CALL_EXTRACTORS: Record<string, (node: TreeNode) => string | null> = {
+  // JS/TS/TSX：foo() / obj.method() / new Foo()
+  call_expression: (n) => callableName(n.childForFieldName?.('function') ?? null),
+  new_expression: (n) => callableName(n.childForFieldName?.('constructor') ?? null),
+  // Java：foo() / obj.foo() / super.foo() / new Foo()
+  method_invocation: (n) => plainIdent(n.childForFieldName?.('name') ?? null),
+  super_method_invocation: (n) => plainIdent(n.childForFieldName?.('name') ?? null),
+  object_creation_expression: (n) => plainIdent(n.childForFieldName?.('type') ?? null),
+};
+
+function plainIdent(node: TreeNode | null | undefined): string | null {
+  if (!node?.text) return null;
+  return /^[A-Za-z_$][\w$]*$/.test(node.text) ? node.text : null;
+}
+
+function callableName(node: TreeNode | null | undefined): string | null {
+  if (!node) return null;
+  // 直接是标识符：foo()
+  if (node.type === 'identifier') return plainIdent(node);
+  // 方法链/成员调用：obj.method() → 取属性名
+  if (node.type === 'member_expression') return plainIdent(node.childForFieldName?.('property') ?? null);
+  return null;
+}
+
+function collectCallSites(root: TreeNode): { name: string; line: number }[] {
+  const out: { name: string; line: number }[] = [];
+  const visit = (node: TreeNode): void => {
+    const extract = CALL_EXTRACTORS[node.type];
+    if (extract) {
+      const name = extract(node);
+      if (name) out.push({ name, line: node.startPosition.row + 1 });
+    }
+    for (let i = 0; i < node.childCount; i++) visit(node.child(i));
+  };
+  visit(root);
+  return out;
+}
+
+/** 单次解析同时产出定义区域与调用点（索引构建复用同一个 parse，避免每文件解两次）。失败或语言未适配返回 null。 */
+export async function parseFileFacts(
+  content: string,
+  lang: string,
+): Promise<{ regions: Region[]; callSites: { name: string; line: number }[] } | null> {
+  if (!GRAMMARS[lang] || !content) return null;
+  const parser = await getParser(lang);
+  if (!parser) return null;
+  try {
+    const tree = parser.parse(content);
+    return { regions: collectRegions(tree.rootNode, lang), callSites: collectCallSites(tree.rootNode) };
+  } catch (e) {
+    console.warn('[tree-sitter] 解析失败:', (e as Error).message);
+    return null;
+  }
+}
+
+/** 解析内容提取被调用的符号名（函数/方法/构造器）。成功（含确实没有调用）返回数组，解析失败或语言未适配返回 null，由调用方决定降级。 */
+export async function parseCallNames(content: string, lang: string): Promise<string[] | null> {
+  const facts = await parseFileFacts(content, lang);
+  return facts ? [...new Set(facts.callSites.map((s) => s.name))] : null;
+}
+
+/** 解析内容提取调用点（带行号）。语义同 parseCallNames：成功返回数组（可空），失败返回 null。 */
+export async function parseCallSites(content: string, lang: string): Promise<{ name: string; line: number }[] | null> {
+  const facts = await parseFileFacts(content, lang);
+  return facts ? facts.callSites : null;
+}
+
 /** API 入口：取指定 rev 下文件的方法/类区域。 */
 export async function treeRegions(repo: string, rev: string, filePath: string): Promise<Region[]> {
   const lang = treeLangOf(filePath);

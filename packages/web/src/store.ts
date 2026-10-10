@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import { api } from './api';
 import { tokenizeLines, type LineTokens } from './highlight';
+import { getSidebarMode, saveSidebarMode, type SidebarMode } from './lib/storage';
 import type { Region } from './lib/rows';
-import type { Def, DiffSummary, FileDiff, FileSummary, NavLoc, SessionComment, SessionData } from './types';
+import type { CallGraph, DiffSummary, FileDiff, FileSummary, NavLoc, PickerItem, SessionComment, SessionData } from './types';
 
 export type ViewMode = 'focus' | 'method' | 'full';
 
@@ -58,9 +59,13 @@ interface ReviewStore {
   navHistory: NavLoc[];
   navIndex: number;
   activeSymbol: string | null;
-  defsPicker: { word: string; defs: Def[] } | null;
+  defsPicker: { word: string; type: 'defs' | 'refs'; items: PickerItem[] } | null;
   jumping: boolean;
   commentsVisible: boolean;
+  sidebarMode: SidebarMode;
+  graph: CallGraph | null;
+  /** 本会话内打开过 diff 的文件（树模式的已读标记） */
+  visited: Set<string>;
 
   start: (p: {
     repo: string;
@@ -73,6 +78,9 @@ interface ReviewStore {
   back: () => void;
   selectFile: (path: string) => Promise<void>;
   setMode: (m: ViewMode) => void;
+  setSidebarMode: (m: SidebarMode) => void;
+  loadGraph: () => Promise<void>;
+  applySuggestedOrder: () => void;
   jump: (dir: 1 | -1) => void;
   expandGap: (id: number) => void;
   setPendingScroll: (p: { hunk: number; ts: number } | null) => void;
@@ -87,7 +95,7 @@ interface ReviewStore {
   toggleMethodExpand: (hunkIdx: number) => void;
   refresh: () => Promise<void>;
   dismissNotice: () => void;
-  jumpDef: (word: string) => Promise<void>;
+  jumpDef: (word: string, at?: { file: string | null; line: number | null }) => Promise<void>;
   gotoFile: (file: string, line: number, label: string) => void;
   navBack: () => void;
   navForward: () => void;
@@ -128,6 +136,9 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
   defsPicker: null,
   jumping: false,
   commentsVisible: true,
+  sidebarMode: getSidebarMode(),
+  graph: null,
+  visited: new Set<string>(),
 
   start: (p) => {
     set({
@@ -150,11 +161,14 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
       activeSymbol: null,
       defsPicker: null,
       commentsVisible: true,
+      graph: null,
+      visited: new Set<string>(),
     });
-    // 空闲时预热定义索引，让第一次 ⌘点击 秒开
+    // 空闲时预热定义索引与调用链图，让第一次 ⌘点击 / 树模式 秒开
     const { repo, review } = get();
     setTimeout(() => {
       api.prefetchIndex(repo, review);
+      get().loadGraph();
     }, 1500);
   },
 
@@ -173,6 +187,10 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
       composer: null,
       flashLine: null,
       pendingLine: null,
+      visited: new Set(get().visited).add(path),
+      // 点文件 = 回到评审该文件的 diff；从跳定义的只读视图里被点击时由此退出浏览器模式
+      navHistory: [{ type: 'diff' }],
+      navIndex: 0,
     });
     try {
       const fd = await api.fileDiff(repo, review, base, path);
@@ -199,6 +217,32 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
   },
 
   setMode: (m) => set({ mode: m, hunkCursor: -1, flash: null, pendingScroll: null }),
+
+  setSidebarMode: (m) => {
+    set({ sidebarMode: m });
+    saveSidebarMode(m);
+  },
+
+  loadGraph: async () => {
+    const { repo, review, base } = get();
+    try {
+      const graph = await api.graph(repo, review, base);
+      // 会话已切换时丢弃过期结果
+      if (get().repo === repo && get().review === review && get().base === base) set({ graph });
+    } catch {
+      // 调用链是纯导航增强，失败静默降级为无图
+    }
+  },
+
+  // 按调用链拓扑序回填文件顺序（走 saveOrder 持久化，导出纪要按此分节）
+  applySuggestedOrder: () => {
+    const { graph, files } = get();
+    if (!graph || graph.order.length === 0) return;
+    const rank = new Map(graph.order.map((p, i) => [p, i]));
+    const inGraph = files.filter((f) => rank.has(f.path)).sort((a, b) => rank.get(a.path)! - rank.get(b.path)!);
+    const rest = files.filter((f) => !rank.has(f.path));
+    if (inGraph.length) get().reorderFiles([...inGraph, ...rest]);
+  },
 
   jump: (dir) => {
     const { fileData, hunkCursor, mode } = get();
@@ -320,6 +364,7 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
       } else {
         set({ selected: null, fileData: null });
       }
+      get().loadGraph();
     } catch (e) {
       set({ notice: `刷新失败：${e instanceof Error ? e.message : String(e)}` });
     } finally {
@@ -329,12 +374,31 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
 
   dismissNotice: () => set({ notice: null }),
 
-  jumpDef: async (word) => {
+  jumpDef: async (word, at) => {
     const { repo, review, jumping } = get();
     if (jumping) return;
     set({ activeSymbol: word, jumping: true });
     try {
       const defs = await api.defs(repo, review, word);
+      // 点在定义行上 = 已经在定义处：反查调用方（IDEA 风格 Find Usages）
+      const atFile = at?.file ?? null;
+      const atLine = at?.line ?? null;
+      const onDef = atFile !== null && atLine !== null && defs.some((d) => d.file === atFile && d.line === atLine);
+      if (onDef) {
+        const refs = await api.refs(repo, review, word);
+        if (refs.length === 0) {
+          set({ notice: `"${word}" 没有找到调用方（索引覆盖函数/类/方法调用点）` });
+          return;
+        }
+        if (refs.length === 1) {
+          get().gotoFile(refs[0].file, refs[0].line, word);
+          return;
+        }
+        set({
+          defsPicker: { word, type: 'refs', items: refs.map((r) => ({ file: r.file, line: r.line, label: word })) },
+        });
+        return;
+      }
       if (defs.length === 0) {
         set({ notice: `未找到 "${word}" 的定义（索引覆盖函数/类/方法声明）` });
         return;
@@ -343,7 +407,13 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
         get().gotoFile(defs[0].file, defs[0].line, defs[0].name);
         return;
       }
-      set({ defsPicker: { word, defs } });
+      set({
+        defsPicker: {
+          word,
+          type: 'defs',
+          items: defs.map((d) => ({ file: d.file, line: d.line, label: d.name, kind: d.kind })),
+        },
+      });
     } catch (e) {
       set({ notice: `跳转失败：${e instanceof Error ? e.message : String(e)}` });
     } finally {
@@ -352,8 +422,11 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
   },
 
   gotoFile: (file, line, label) => {
-    const { navHistory, navIndex } = get();
-    const history = [...navHistory.slice(0, navIndex + 1), { type: 'file' as const, file, line, label }];
+    // 侧栏跟随：目标在改动清单里就选中（预载 diff，Esc 返回时直接就绪）；不在清单（未改动文件）则保持原选中
+    if (get().files.some((f) => f.path === file) && get().selected !== file) {
+      get().selectFile(file);
+    }
+    const history: NavLoc[] = [{ type: 'diff' }, { type: 'file', file, line, label }];
     set({ navHistory: history, navIndex: history.length - 1, defsPicker: null });
   },
 

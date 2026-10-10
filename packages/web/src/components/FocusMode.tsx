@@ -141,9 +141,11 @@ export function FocusMode({ onLineClick, commentCountFor }: ExtraProps) {
                 @@ -{h.oldStart},{h.oldLines} +{h.newStart},{h.newLines} @@
               </span>
               {hunkMeta[i]?.region && (
-                <span className="flex items-center gap-1 rounded bg-[#21262d] px-1.5 py-0.5 text-[10px] text-[#79c0ff]">
-                  <Braces size={10} />
-                  {hunkMeta[i]!.region!.name}
+                <span className="flex min-w-0 items-center gap-1 rounded bg-[#21262d] px-1.5 py-0.5 text-[10px] text-[#79c0ff]">
+                  <Braces size={10} className="shrink-0" />
+                  <span className="code-font truncate" title={hunkMeta[i]?.region?.name}>
+                    {hunkMeta[i]!.region!.name}
+                  </span>
                 </span>
               )}
               <span className="ml-auto">
@@ -156,19 +158,22 @@ export function FocusMode({ onLineClick, commentCountFor }: ExtraProps) {
             {hunkMeta[i]?.bar && (
               <MethodBar hunkIdx={i} region={hunkMeta[i]!.region!} hiddenBefore={hunkMeta[i]!.bar!.hiddenBefore} hiddenAfter={hunkMeta[i]!.bar!.hiddenAfter} />
             )}
-            <div className="w-max min-w-full overflow-x-auto">
-              {(sections.get(i) ?? []).map((row, j) => (
-                <DiffRowView
-                  key={j}
-                  row={row}
-                  flashTs={
-                    flash && row.kind !== 'gap' && row.kind !== 'comment' && row.hunkIdx === flash.idx ? flash.ts : null
-                  }
-                  onGap={expandGap}
-                  onLineClick={onLineClick}
-                  commentCountFor={commentCountFor}
-                />
-              ))}
+            {/* 外层占满 section 宽作为横向滚动容器，内层 w-max 撑到最宽行；内联评论 sticky left-0 保持可见 */}
+            <div className="overflow-x-auto">
+              <div className="w-max min-w-full">
+                {(sections.get(i) ?? []).map((row, j) => (
+                  <DiffRowView
+                    key={j}
+                    row={row}
+                    flashTs={
+                      flash && row.kind !== 'gap' && row.kind !== 'comment' && row.hunkIdx === flash.idx ? flash.ts : null
+                    }
+                    onGap={expandGap}
+                    onLineClick={onLineClick}
+                    commentCountFor={commentCountFor}
+                  />
+                ))}
+              </div>
             </div>
           </section>
         ))}

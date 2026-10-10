@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ensureDefIndex, findDefs } from './defs.js';
+import { ensureDefIndex, findDefs, findRefs } from './defs.js';
 
 let repoDir: string | null = null;
 
@@ -65,5 +65,22 @@ describe('def index', () => {
     const repo = makeRepo();
     expect(await findDefs(repo, 'main', 'a b')).toEqual([]);
     expect(await findDefs(repo, 'main', '../etc')).toEqual([]);
+  });
+
+  it('findRefs 反查调用方：import 与定义行不算调用', async () => {
+    const repo = makeRepo();
+    const refs = await findRefs(repo, 'main', 'formatAmount');
+    // order.ts 第 1 行是 import（非调用），第 7 行才是真实调用；utils.ts 第 1 行是定义
+    expect(refs).toEqual([{ file: 'src/order.ts', line: 7 }]);
+    expect(await findRefs(repo, 'main', 'a b')).toEqual([]);
+  });
+
+  it('findRefs：同类内方法调用', async () => {
+    const repo = makeRepo();
+    const refs = await findRefs(repo, 'main', 'total');
+    expect(refs).toEqual([]);
+    // total 定义于 order.ts:3 且无人调用
+    const defs = await ensureDefIndex(repo, 'main');
+    expect(defs.get('total')?.[0]).toMatchObject({ file: 'src/order.ts', line: 3 });
   });
 });

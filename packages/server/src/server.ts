@@ -8,7 +8,8 @@ import { readSession, updateSession, type SessionComment } from './store.js';
 import { buildExportMarkdown } from './export.js';
 import { treeRegions } from './tree.js';
 import { refreshReview } from './refresh.js';
-import { ensureDefIndex, findDefs } from './defs.js';
+import { ensureDefIndex, findDefs, findRefs } from './defs.js';
+import { buildReviewGraph } from './graph.js';
 import { pickFolder } from './dialog.js';
 
 /** 静态资源目录：发布包内的 web-dist 优先，开发仓库回退到 packages/web/dist。 */
@@ -110,6 +111,18 @@ export async function buildServer() {
     }
   });
 
+  // 反查调用方（定义上 ⌘点击）：与跳定义同档精度，纯导航增强
+  app.get('/api/tree/refs', async (req, reply) => {
+    const { repo, rev, symbol } = req.query as Record<string, string>;
+    if (!repo || !rev || !symbol) return reply.code(400).send({ error: '缺少参数' });
+    try {
+      const root = await validateRepo(repo);
+      return { refs: await findRefs(root, rev, symbol) };
+    } catch (e) {
+      return bad(reply, e);
+    }
+  });
+
   app.post('/api/tree/index', async (req) => {
     const b = (req.body ?? {}) as { repo?: string; rev?: string };
     if (!b.repo || !b.rev) return { ok: false };
@@ -122,8 +135,20 @@ export async function buildServer() {
     }
   });
 
-  app.post('/api/review/refresh', async (req, reply) => {
-    const b = (req.body ?? {}) as {
+  // 改动文件间调用链：构建失败静默返回空图（纯导航增强，不阻塞 UI）
+  app.get('/api/review/graph', async (req, reply) => {
+    const { repo, review, base } = req.query as Record<string, string>;
+    if (!repo || !review || !base) return reply.code(400).send({ error: '缺少 repo/review/base' });
+    try {
+      const root = await validateRepo(repo);
+      return await buildReviewGraph(root, review, base);
+    } catch (e) {
+      console.warn('[graph] 构建失败:', (e as Error).message);
+      return { edges: [], order: [] };
+    }
+  });
+
+  app.post('/api/review/refresh', async (req, reply) => {    const b = (req.body ?? {}) as {
       repo?: string;
       review?: string;
       base?: string;

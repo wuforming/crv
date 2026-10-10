@@ -18,13 +18,16 @@ export interface DiffRowViewProps {
 export function DiffRowView({ row, flashTs, onGap, onLineClick, commentCountFor, lineFlash }: DiffRowViewProps) {
   const jumpDef = useReviewStore((s) => s.jumpDef);
   const setActiveSymbol = useReviewStore((s) => s.setActiveSymbol);
+  const selected = useReviewStore((s) => s.selected);
 
   const onCodeClick = (e: React.MouseEvent) => {
     const word = wordAtPoint(e.clientX, e.clientY);
     if (!word) return;
     if (e.metaKey || e.ctrlKey) {
       e.preventDefault();
-      jumpDef(word);
+      // 带上点击位置：点在定义行上时反查调用方；del 行只有旧侧行号（与新基准不易匹配，自然退回跳定义）
+      const line = row.kind === 'del' ? row.oldNo : row.kind === 'ctx' || row.kind === 'add' ? row.newNo : undefined;
+      jumpDef(word, { file: selected, line: line ?? null });
     } else {
       setActiveSymbol(word);
     }

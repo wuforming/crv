@@ -79,7 +79,32 @@ export interface Def {
   line: number;
 }
 
+export interface RefSite {
+  file: string;
+  line: number;
+}
+
+/** 定义/调用方选择器的通用条目 */
+export interface PickerItem {
+  file: string;
+  line: number;
+  label: string;
+  kind?: 'function' | 'class';
+}
+
 export type NavLoc = { type: 'diff' } | { type: 'file'; file: string; line: number; label: string };
+
+export interface CallEdge {
+  from: string;
+  to: string;
+  via: string;
+}
+
+export interface CallGraph {
+  edges: CallEdge[];
+  /** 推荐评审顺序：调用链拓扑序，入口在前 */
+  order: string[];
+}
 
 export interface SessionData {
   reviewBranch: string;

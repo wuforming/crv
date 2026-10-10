@@ -62,12 +62,13 @@ export function FileBrowser() {
     virtualizer.scrollToIndex(Math.min(targetLine, tokens.length) - 1, { align: 'center' });
   }, [loading, tokens.length, targetLine, targetTs, virtualizer]);
 
-  const onCodeClick = (e: React.MouseEvent) => {
+  const onCodeClick = (e: React.MouseEvent, lineNo: number) => {
     const word = wordAtPoint(e.clientX, e.clientY);
     if (!word) return;
     if (e.metaKey || e.ctrlKey) {
       e.preventDefault();
-      jumpDef(word);
+      // 带上点击位置：点在定义行上时反查调用方
+      jumpDef(word, { file, line: lineNo });
     } else {
       setActiveSymbol(word);
     }
@@ -130,7 +131,7 @@ export function FileBrowser() {
                   <span className="w-12 shrink-0 select-none border-r border-[#21262d] bg-[#0d1117] pr-2 text-right font-mono text-[11px] text-[#6e7681]">
                     {lineNo}
                   </span>
-                  <code className="px-3" onClick={onCodeClick}>
+                  <code className="px-3" onClick={(e) => onCodeClick(e, lineNo)}>
                     {(tokens[v.index] ?? [{ content: '', color: DEFAULT_COLOR }]).map((t, i) => (
                       <span key={i} style={{ color: t.color }} className="cursor-text">
                         {t.content || ' '}

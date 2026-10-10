@@ -221,7 +221,7 @@ export function ReviewPage() {
                 <span className="text-[#6e7681]">⌘B / ⌘点击 跳转定义</span>
               </span>
             ) : (
-              <span>点击代码选中符号 · ⌘点击 直接跳转定义 · ↑↓ 跳改动 · ⌘[ 返回</span>
+              <span>点击代码选中符号 · ⌘点击 跳定义 · 定义上⌘点击 查调用方 · ↑↓ 跳改动 · ⌘[ 返回</span>
             )}
             <span className="ml-auto font-mono text-[10px] text-[#6e7681]">
               {review}@{summary?.reviewSha.slice(0, 8) ?? ''}
@@ -230,7 +230,7 @@ export function ReviewPage() {
         </main>
         <CommentPanel />
 
-        {/* 多定义选择器 */}
+        {/* 多定义 / 多调用方选择器 */}
         {defsPicker && (
           <div className="absolute inset-0 z-20 flex items-start justify-center bg-black/40 pt-24" onClick={closePicker}>
             <div
@@ -238,20 +238,27 @@ export function ReviewPage() {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="border-b border-[#30363d] px-4 py-2 text-xs text-[#8b949e]">
-                "<span className="code-font text-[#79c0ff]">{defsPicker.word}</span>" 有 {defsPicker.defs.length} 个定义，选择要跳转的：
+                "<span className="code-font text-[#79c0ff]">{defsPicker.word}</span>"{' '}
+                {defsPicker.type === 'refs'
+                  ? `有 ${defsPicker.items.length} 处调用，选择要查看的：`
+                  : `有 ${defsPicker.items.length} 个定义，选择要跳转的：`}
               </div>
               <ul className="max-h-72 overflow-y-auto p-1">
-                {defsPicker.defs.map((d, i) => (
-                  <li key={`${d.file}-${d.line}-${i}`}>
+                {defsPicker.items.map((item, i) => (
+                  <li key={`${item.file}-${item.line}-${i}`}>
                     <button
                       type="button"
-                      onClick={() => gotoFile(d.file, d.line, d.name)}
+                      onClick={() => gotoFile(item.file, item.line, item.label)}
                       className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-[13px] hover:bg-[#1f6feb]/20"
                     >
-                      <Braces size={13} className={d.kind === 'class' ? 'text-[#d29922]' : 'text-[#3fb950]'} />
-                      <span className="code-font text-[#e6edf3]">{d.name}</span>
+                      {item.kind ? (
+                        <Braces size={13} className={item.kind === 'class' ? 'text-[#d29922]' : 'text-[#3fb950]'} />
+                      ) : (
+                        <CornerDownRight size={13} className="text-[#79c0ff]" />
+                      )}
+                      <span className="code-font text-[#e6edf3]">{item.label}</span>
                       <span className="ml-auto truncate text-[11px] text-[#8b949e]">
-                        {d.file}:{d.line}
+                        {item.file}:{item.line}
                       </span>
                     </button>
                   </li>
